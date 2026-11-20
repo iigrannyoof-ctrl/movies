@@ -1,0 +1,151 @@
+---
+title: "Movie Analysis"
+author: "Kiara Hill"
+execute:
+  echo: false
+format:
+  html:
+    theme: cosmo
+    toc: true
+---
+
+```{r}
+#| label: setup
+#| message: false
+library(tidyverse)
+
+movies <- read_csv("data/movies.csv", show_col_types = FALSE)
+```
+
+## Data cleaning
+
+```{r}
+#| label: clean-movie-data
+#| cache: true
+movies_clean <- movies |>
+  separate_longer_delim(genre, delim = ", ")
+
+movies_gap <- movies_clean |>
+  filter(tomatoMeter != 0, audienceScore != 0) |>
+  mutate(gap = tomatoMeter - audienceScore) |>
+  group_by(genre) |>
+  summarize(mean_gap = mean(gap, na.rm = TRUE), n = n(), .groups = "drop") |>
+  filter(n >= 100) |>
+  arrange(mean_gap)
+
+movies_summary <- movies_gap
+```
+
+## Tomatometer Distribution
+
+```{r}
+#| label: tomatometer-histogram
+#| fig-width: 9
+#| fig-height: 5
+ggplot(movies, aes(x = tomatoMeter)) +
+  geom_histogram(binwidth = 5, fill = "#F8766D", color = "white") +
+  labs(
+    title = "Distribution of Tomatometer Scores",
+    subtitle = "29,783 films",
+    x = "Tomatometer Score",
+    y = "Count"
+  ) +
+  theme_minimal()
+```
+
+**Tomatometer:** Critic scores concentrate toward the high end. Zero scores require caution because missing ratings may be recorded as zero.
+
+## Critic-Audience Gap by Genre
+
+```{r}
+#| label: genre-gap-chart
+#| fig-width: 9
+#| fig-height: 7
+movies_summary |>
+  mutate(genre = fct_reorder(genre, mean_gap, .desc = TRUE)) |>
+  ggplot(aes(x = mean_gap, y = genre)) +
+  geom_col(fill = "#4C78A8") +
+  geom_vline(xintercept = 0, color = "black") +
+  labs(
+    title = "Average Critic-Audience Gap by Genre",
+    subtitle = "Genres with at least 100 films; negative values favor audiences, positive values favor critics",
+    x = "Average Gap (Critic - Audience)",
+    y = "Genre"
+  ) +
+  theme_minimal()
+```
+
+**Genre comparison:** Negative gaps favor audiences, while positive gaps favor critics. Filtering to genres with at least 100 observations reduces misleading results from tiny samples.
+
+## Spider-Man Ratings
+
+```{r}
+#| label: spiderman-data
+spiderman_titles <- c(
+  "Spider-Man",
+  "Spider-Man 2",
+  "Spider-Man 3",
+  "The Amazing Spider-Man",
+  "The Amazing Spider-Man 2",
+  "Spider-Man: Homecoming",
+  "Spider-Man: Far From Home",
+  "Spider-Man: No Way Home"
+)
+
+spiderman <- movies |>
+  filter(title %in% spiderman_titles) |>
+  mutate(actor = case_when(
+    title %in% c("Spider-Man", "Spider-Man 2", "Spider-Man 3") ~ "Tobey Maguire",
+    title %in% c("The Amazing Spider-Man", "The Amazing Spider-Man 2") ~ "Andrew Garfield",
+    title %in% c("Spider-Man: Homecoming", "Spider-Man: Far From Home", "Spider-Man: No Way Home") ~ "Tom Holland",
+  )) |>
+  arrange(releaseDateTheaters) |>
+  mutate(title = factor(title, levels = title))
+
+spiderman_long <- spiderman |>
+  pivot_longer(
+    cols = c(tomatoMeter, audienceScore),
+    names_to = "rating",
+    values_to = "score"
+  ) |>
+  mutate(rating = recode(rating,
+    tomatoMeter = "Critics",
+    audienceScore = "Audiences"
+  ))
+```
+
+```{r}
+#| label: spiderman-line-chart
+#| fig-width: 10
+#| fig-height: 6
+ggplot(spiderman_long, aes(x = title, y = score, color = rating, group = rating)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2.5) +
+  scale_y_continuous(limits = c(0, 100), breaks = seq(0, 100, 10)) +
+  scale_color_manual(values = c(Critics = "#008080", Audiences = "#F8766D")) +
+  labs(
+    title = "Spider-Man Ratings: Critics and Audiences Agree Most on Holland Films",
+    subtitle = "Rotten Tomatoes critic and audience scores across eight live-action films",
+    x = "Film",
+    y = "Score",
+    color = "Rating"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 35, hjust = 1))
+```
+
+```{r}
+#| label: spiderman-actor-averages
+spiderman |>
+  group_by(actor) |>
+  summarize(
+    `Average critic score` = mean(tomatoMeter, na.rm = TRUE),
+    `Average audience score` = mean(audienceScore, na.rm = TRUE),
+    `Average gap` = mean(tomatoMeter - audienceScore, na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  arrange(factor(actor, levels = c("Tobey Maguire", "Andrew Garfield", "Tom Holland"))) |>
+  knitr::kable(digits = 1)
+```
+
+**Spider-Man:** Critics favor Maguire's films more strongly than audiences. Garfield's films favor audiences. Holland's films show the strongest agreement between critics and audiences.
